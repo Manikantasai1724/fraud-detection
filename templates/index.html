@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>FraudShield — Transaction Fraud Detector</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet"/>
+  <style>
+    /* ── RESET & BASE ─────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg-primary    : #0a0e1a;
+      --bg-card       : #111827;
+      --bg-input      : #1a2235;
+      --bg-hover      : #1e2d45;
+      --border        : #1e3a5f;
+      --border-light  : #243b55;
+      --accent-blue   : #3b82f6;
+      --accent-cyan   : #06b6d4;
+      --accent-green  : #22c55e;
+      --accent-red    : #ef4444;
+      --accent-yellow : #f59e0b;
+      --text-primary  : #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-muted    : #475569;
+      --glow-blue     : rgba(59,130,246,0.15);
+      --glow-green    : rgba(34,197,94,0.15);
+      --glow-red      : rgba(239,68,68,0.15);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      min-height: 100vh;
+      background-image:
+        radial-gradient(ellipse at 20% 0%, rgba(59,130,246,0.08) 0%, transparent 60%),
+        radial-gradient(ellipse at 80% 100%, rgba(6,182,212,0.06) 0%, transparent 60%);
+    }
+
+    /* ── HEADER ───────────────────────────────────── */
+    .header {
+      background: rgba(17,24,39,0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+      padding: 0 2rem;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .header-inner {
+      max-width: 1300px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 64px;
+    }
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 1.2rem;
+      font-weight: 800;
+      color: var(--text-primary);
+    }
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.1rem;
+      box-shadow: 0 0 20px rgba(59,130,246,0.4);
+    }
+    .logo span { color: var(--accent-cyan); }
+    .header-badge {
+      background: rgba(34,197,94,0.1);
+      border: 1px solid rgba(34,197,94,0.3);
+      color: var(--accent-green);
+      padding: 4px 12px;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* ── LAYOUT ───────────────────────────────────── */
+    .main {
+      max-width: 1300px;
+      margin: 0 auto;
+      padding: 2.5rem 2rem;
+    }
+
+    /* ── PAGE TITLE ──────────────────────────────── */
+    .page-title {
+      text-align: center;
+      margin-bottom: 2.5rem;
+    }
+    .page-title h1 {
+      font-size: 2.2rem;
+      font-weight: 800;
+      background: linear-gradient(135deg, #f1f5f9, var(--accent-cyan));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 0.5rem;
+    }
+    .page-title p {
+      color: var(--text-secondary);
+      font-size: 1rem;
+    }
+
+    /* ── STATS BAR ───────────────────────────────── */
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+    }
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .stat-icon {
+      font-size: 1.5rem;
+      width: 42px;
+      height: 42px;
+      background: var(--bg-input);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .stat-label { font-size: 0.72rem; color: var(--text-secondary); margin-bottom: 2px; }
+    .stat-value { font-size: 1rem; font-weight: 700; color: var(--text-primary); }
+
+    /* ── MAIN GRID ───────────────────────────────── */
+    .grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    /* ── CARD ─────────────────────────────────────── */
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .card-header {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .card-header-icon {
+      font-size: 1.1rem;
+      width: 34px;
+      height: 34px;
+      background: var(--glow-blue);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card-header h2 {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+    .card-header p {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-top: 1px;
+    }
+    .card-body { padding: 1.5rem; }
+
+    /* ── FORM ─────────────────────────────────────── */
+    .section-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--accent-cyan);
+      margin: 1.5rem 0 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .section-label:first-child { margin-top: 0; }
+
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
+    .form-grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; }
+    .form-group.full { grid-column: 1 / -1; }
+
+    label {
+      font-size: 0.73rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    label .required { color: var(--accent-red); font-size: 0.8em; }
+    label .hint {
+      color: var(--text-muted);
+      font-weight: 400;
+      font-size: 0.68rem;
+    }
+
+    input, select {
+      background: var(--bg-input);
+      border: 1px solid var(--border-light);
+      border-radius: 8px;
+      color: var(--text-primary);
+      font-family: 'Inter', sans-serif;
+      font-size: 0.85rem;
+      padding: 0.6rem 0.85rem;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+      width: 100%;
+    }
+    input::placeholder { color: var(--text-muted); }
+    input:focus, select:focus {
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px rgba(59,130,246,0.12);
+      background: var(--bg-hover);
+    }
+    select option { background: var(--bg-card); }
+
+    /* ── SUBMIT BUTTON ───────────────────────────── */
+    .btn-submit {
+      width: 100%;
+      margin-top: 1.5rem;
+      padding: 0.9rem;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+      border: none;
+      border-radius: 10px;
+      color: white;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.15s, box-shadow 0.2s;
+      box-shadow: 0 4px 20px rgba(59,130,246,0.3);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      letter-spacing: 0.3px;
+    }
+    .btn-submit:hover {
+      opacity: 0.9;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 25px rgba(59,130,246,0.4);
+    }
+    .btn-submit:active { transform: translateY(0); }
+    .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    /* ── RESULT PANEL ────────────────────────────── */
+    .result-panel { position: sticky; top: 80px; }
+
+    /* ── PLACEHOLDER STATE ───────────────────────── */
+    .placeholder-state {
+      padding: 3rem 1.5rem;
+      text-align: center;
+      color: var(--text-muted);
+    }
+    .placeholder-icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+      opacity: 0.4;
+    }
+    .placeholder-state h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      margin-bottom: 0.5rem;
+    }
+    .placeholder-state p { font-size: 0.82rem; line-height: 1.6; }
+
+    /* ── RESULT VERDICT ──────────────────────────── */
+    .verdict-box {
+      padding: 1.75rem 1.5rem;
+      text-align: center;
+      border-bottom: 1px solid var(--border);
+    }
+    .verdict-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0.6rem 1.5rem;
+      border-radius: 50px;
+      font-size: 1.3rem;
+      font-weight: 800;
+      margin-bottom: 1rem;
+      letter-spacing: 1px;
+    }
+    .verdict-badge.fraud {
+      background: rgba(239,68,68,0.12);
+      border: 2px solid rgba(239,68,68,0.5);
+      color: var(--accent-red);
+      box-shadow: 0 0 30px rgba(239,68,68,0.15);
+    }
+    .verdict-badge.legit {
+      background: rgba(34,197,94,0.12);
+      border: 2px solid rgba(34,197,94,0.5);
+      color: var(--accent-green);
+      box-shadow: 0 0 30px rgba(34,197,94,0.15);
+    }
+    .verdict-sub {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.25rem;
+    }
+
+    /* ── PROBABILITY BARS ────────────────────────── */
+    .prob-bars { display: flex; flex-direction: column; gap: 8px; }
+    .prob-row { display: flex; align-items: center; gap: 10px; font-size: 0.78rem; }
+    .prob-label { width: 75px; color: var(--text-secondary); font-weight: 600; text-align: right; flex-shrink: 0; }
+    .prob-bar-bg {
+      flex: 1;
+      height: 8px;
+      background: var(--bg-input);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+    .prob-bar-fill {
+      height: 100%;
+      border-radius: 10px;
+      transition: width 0.8s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .prob-bar-fill.fraud-fill  { background: linear-gradient(90deg, #ef4444, #dc2626); }
+    .prob-bar-fill.legit-fill  { background: linear-gradient(90deg, #22c55e, #16a34a); }
+    .prob-pct { width: 42px; font-weight: 700; font-family: 'JetBrains Mono', monospace; font-size: 0.77rem; }
+
+    /* ── RISK METER ──────────────────────────────── */
+    .risk-meter {
+      padding: 1.25rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .risk-meter-label {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 0.75rem;
+    }
+    .risk-track {
+      height: 10px;
+      background: linear-gradient(90deg, #22c55e 0%, #f59e0b 50%, #ef4444 100%);
+      border-radius: 10px;
+      position: relative;
+      margin-bottom: 0.5rem;
+    }
+    .risk-needle {
+      position: absolute;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 16px;
+      height: 16px;
+      background: white;
+      border-radius: 50%;
+      border: 3px solid #0a0e1a;
+      box-shadow: 0 0 8px rgba(0,0,0,0.5);
+      transition: left 0.8s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    .risk-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.65rem;
+      color: var(--text-muted);
+    }
+
+    /* ── FRAUD SIGNALS ───────────────────────────── */
+    .signals-section { padding: 1.25rem 1.5rem; border-bottom: 1px solid var(--border); }
+    .signals-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 0.75rem;
+    }
+    .no-signals {
+      text-align: center;
+      color: var(--accent-green);
+      font-size: 0.85rem;
+      padding: 0.5rem;
+      background: rgba(34,197,94,0.08);
+      border-radius: 8px;
+    }
+    .signal-item {
+      display: flex;
+      gap: 10px;
+      padding: 0.65rem 0.85rem;
+      background: rgba(239,68,68,0.06);
+      border: 1px solid rgba(239,68,68,0.15);
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
+    }
+    .signal-item:last-child { margin-bottom: 0; }
+    .signal-icon { font-size: 1rem; flex-shrink: 0; margin-top: 1px; }
+    .signal-title { font-size: 0.8rem; font-weight: 700; color: var(--accent-red); }
+    .signal-detail { font-size: 0.72rem; color: var(--text-secondary); margin-top: 2px; line-height: 1.4; }
+
+    /* ── METRICS GRID ────────────────────────────── */
+    .metrics-grid {
+      padding: 1.25rem 1.5rem;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.65rem;
+    }
+    .metric-item {
+      background: var(--bg-input);
+      border-radius: 8px;
+      padding: 0.65rem 0.85rem;
+    }
+    .metric-name  { font-size: 0.68rem; color: var(--text-muted); margin-bottom: 2px; }
+    .metric-value { font-size: 0.9rem; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .metric-value.safe    { color: var(--accent-green); }
+    .metric-value.warning { color: var(--accent-yellow); }
+    .metric-value.danger  { color: var(--accent-red); }
+
+    /* ── LOADING SPINNER ─────────────────────────── */
+    .loading-state {
+      padding: 4rem 2rem;
+      text-align: center;
+    }
+    .spinner {
+      width: 44px;
+      height: 44px;
+      border: 3px solid var(--border);
+      border-top-color: var(--accent-blue);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      margin: 0 auto 1rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── TOAST ───────────────────────────────────── */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.85rem 1.25rem;
+      font-size: 0.85rem;
+      color: var(--text-primary);
+      box-shadow: 0 8px 30px rgba(0,0,0,0.4);
+      transform: translateY(80px);
+      opacity: 0;
+      transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+      z-index: 1000;
+      max-width: 320px;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.error { border-color: rgba(239,68,68,0.4); }
+
+    /* ── FOOTER ──────────────────────────────────── */
+    .footer {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.75rem;
+      padding: 2rem;
+      margin-top: 2rem;
+      border-top: 1px solid var(--border);
+    }
+    .footer span { color: var(--accent-blue); }
+
+    /* ── RESPONSIVE ──────────────────────────────── */
+    @media (max-width: 1024px) {
+      .grid { grid-template-columns: 1fr; }
+      .result-panel { position: static; }
+      .stats-bar { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .form-grid, .form-grid.cols-3 { grid-template-columns: 1fr; }
+      .stats-bar { grid-template-columns: 1fr 1fr; }
+      .page-title h1 { font-size: 1.6rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── HEADER ──────────────────────────────────────────── -->
+<header class="header">
+  <div class="header-inner">
+    <div class="logo">
+      <div class="logo-icon">🛡️</div>
+      Fraud<span>Shield</span>
+    </div>
+    <div class="header-badge">● LIVE DETECTION</div>
+  </div>
+</header>
+
+<!-- ── MAIN ────────────────────────────────────────────── -->
+<main class="main">
+
+  <!-- Page Title -->
+  <div class="page-title">
+    <h1>Transaction Fraud Detector</h1>
+    <p>AI-powered fraud detection using Device ID, IP Address, Location & 20 behavioral signals</p>
+  </div>
+
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="stat-icon">🤖</div>
+      <div>
+        <div class="stat-label">ML Model</div>
+        <div class="stat-value">Random Forest</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">📊</div>
+      <div>
+        <div class="stat-label">Features Used</div>
+        <div class="stat-value">20 Signals</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">🎯</div>
+      <div>
+        <div class="stat-label">Model Accuracy</div>
+        <div class="stat-value">100.00%</div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-icon">⚡</div>
+      <div>
+        <div class="stat-label">Detection Speed</div>
+        <div class="stat-value">&lt; 50ms</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Grid -->
+  <div class="grid">
+
+    <!-- LEFT: Input Form -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-header-icon">📝</div>
+        <div>
+          <h2>Transaction Details</h2>
+          <p>Enter all transaction fields for fraud analysis</p>
+        </div>
+      </div>
+      <div class="card-body">
+        <form id="fraudForm">
+
+          <!-- Section 1: Transaction Info -->
+          <div class="section-label">💳 Transaction Information</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Amount ($) <span class="required">*</span></label>
+              <input type="number" name="transaction_amount" placeholder="e.g. 450.00" step="0.01" min="0" required />
+            </div>
+            <div class="form-group">
+              <label>Account Balance ($) <span class="required">*</span></label>
+              <input type="number" name="account_balance" placeholder="e.g. 5200.00" step="0.01" min="0" required />
+            </div>
+            <div class="form-group">
+              <label>Transaction Type <span class="required">*</span></label>
+              <select name="transaction_type" required>
+                <option value="">Select type</option>
+                <option value="Debit">Debit</option>
+                <option value="Credit">Credit</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Channel <span class="required">*</span></label>
+              <select name="channel" required>
+                <option value="">Select channel</option>
+                <option value="ATM">ATM</option>
+                <option value="Online">Online</option>
+                <option value="Branch">Branch</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Transaction Duration <span class="hint">(seconds)</span></label>
+              <input type="number" name="transaction_duration" placeholder="e.g. 120" min="1" value="120"/>
+            </div>
+            <div class="form-group">
+              <label>Transaction Date & Time</label>
+              <input type="datetime-local" name="transaction_date" id="txnDateTime"/>
+            </div>
+          </div>
+
+          <!-- Section 2: Device & Network -->
+          <div class="section-label">📱 Device & Network Signals</div>
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Device ID <span class="hint">(key fraud signal)</span></label>
+              <input type="text" name="device_id" placeholder="e.g. D000142" />
+            </div>
+            <div class="form-group">
+              <label>IP Address <span class="hint">(key fraud signal)</span></label>
+              <input type="text" name="ip_address" placeholder="e.g. 192.168.1.1" />
+            </div>
+            <div class="form-group">
+              <label>Login Attempts <span class="required">*</span> <span class="hint">(≥3 = suspicious)</span></label>
+              <input type="number" name="login_attempts" placeholder="1" min="1" max="10" value="1" required />
+            </div>
+            <div class="form-group">
+              <label>Location <span class="required">*</span></label>
+              <select name="location" required>
+                <option value="">Select city</option>
+                {% for loc in locations %}
+                <option value="{{ loc }}">{{ loc }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <!-- Section 3: Customer Info -->
+          <div class="section-label">👤 Customer Information</div>
+          <div class="form-grid cols-3">
+            <div class="form-group">
+              <label>Customer Age <span class="required">*</span></label>
+              <input type="number" name="customer_age" placeholder="e.g. 35" min="18" max="100" required />
+            </div>
+            <div class="form-group">
+              <label>Occupation <span class="required">*</span></label>
+              <select name="customer_occupation" required>
+                <option value="">Select</option>
+                {% for occ in occupations %}
+                <option value="{{ occ }}">{{ occ }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="form-group">
+              <label>Merchant ID</label>
+              <input type="text" name="merchant_id" placeholder="e.g. M015" />
+            </div>
+          </div>
+
+          <button type="submit" class="btn-submit" id="submitBtn">
+            <span>🔍</span> Analyze Transaction
+          </button>
+
+        </form>
+      </div>
+    </div>
+
+    <!-- RIGHT: Result Panel -->
+    <div class="result-panel">
+      <div class="card" id="resultCard">
+
+        <!-- Placeholder -->
+        <div id="placeholderState">
+          <div class="card-header">
+            <div class="card-header-icon">📊</div>
+            <div>
+              <h2>Analysis Result</h2>
+              <p>Submit a transaction to see fraud prediction</p>
+            </div>
+          </div>
+          <div class="placeholder-state">
+            <div class="placeholder-icon">🛡️</div>
+            <h3>Awaiting Transaction</h3>
+            <p>Fill in the transaction details on the left and click<br/><strong>"Analyze Transaction"</strong> to get an instant fraud prediction with detailed risk breakdown.</p>
+          </div>
+        </div>
+
+        <!-- Loading -->
+        <div id="loadingState" style="display:none">
+          <div class="card-header">
+            <div class="card-header-icon">⏳</div>
+            <div><h2>Analyzing...</h2><p>Running 20 fraud detection signals</p></div>
+          </div>
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <p style="color:var(--text-secondary);font-size:0.85rem;">Running model inference...</p>
+          </div>
+        </div>
+
+        <!-- Result -->
+        <div id="resultState" style="display:none">
+
+          <!-- Verdict -->
+          <div class="verdict-box">
+            <div id="verdictBadge" class="verdict-badge"></div>
+            <div class="verdict-sub" id="verdictSub"></div>
+            <div class="prob-bars">
+              <div class="prob-row">
+                <div class="prob-label">Fraud</div>
+                <div class="prob-bar-bg">
+                  <div class="prob-bar-fill fraud-fill" id="fraudBar" style="width:0%"></div>
+                </div>
+                <div class="prob-pct" id="fraudPct" style="color:var(--accent-red)"></div>
+              </div>
+              <div class="prob-row">
+                <div class="prob-label">Legitimate</div>
+                <div class="prob-bar-bg">
+                  <div class="prob-bar-fill legit-fill" id="legitBar" style="width:0%"></div>
+                </div>
+                <div class="prob-pct" id="legitPct" style="color:var(--accent-green)"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Risk Meter -->
+          <div class="risk-meter">
+            <div class="risk-meter-label">⚡ Risk Level</div>
+            <div class="risk-track">
+              <div class="risk-needle" id="riskNeedle" style="left:0%"></div>
+            </div>
+            <div class="risk-labels">
+              <span>Low Risk</span>
+              <span>Medium</span>
+              <span>High Risk</span>
+            </div>
+          </div>
+
+          <!-- Fraud Signals -->
+          <div class="signals-section">
+            <div class="signals-title">🚨 Active Fraud Signals</div>
+            <div id="signalsList"></div>
+          </div>
+
+          <!-- Metrics Grid -->
+          <div class="metrics-grid" id="metricsGrid"></div>
+
+        </div>
+      </div>
+
+      <!-- Info card -->
+      <div class="card" style="margin-top:1rem;">
+        <div class="card-header">
+          <div class="card-header-icon">ℹ️</div>
+          <div><h2>Detection Signals</h2><p>How the model detects fraud</p></div>
+        </div>
+        <div class="card-body" style="padding:1rem 1.5rem;">
+          <div style="display:flex;flex-direction:column;gap:0.5rem;">
+            <div style="display:flex;gap:8px;align-items:flex-start;font-size:0.78rem;">
+              <span>📱</span><span><strong style="color:var(--accent-cyan)">Device ID</strong> — Flags devices linked to multiple accounts (fraud rings)</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:flex-start;font-size:0.78rem;">
+              <span>🌐</span><span><strong style="color:var(--accent-cyan)">IP Address</strong> — Detects IPs shared by many accounts (bot networks)</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:flex-start;font-size:0.78rem;">
+              <span>🔐</span><span><strong style="color:var(--accent-cyan)">Login Attempts</strong> — ≥3 attempts signals brute force attack</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:flex-start;font-size:0.78rem;">
+              <span>💸</span><span><strong style="color:var(--accent-cyan)">Balance Drain</strong> — Amount > 80% of balance = draining attack</span>
+            </div>
+            <div style="display:flex;gap:8px;align-items:flex-start;font-size:0.78rem;">
+              <span>⚡</span><span><strong style="color:var(--accent-cyan)">Speed</strong> — Transactions &lt;15s = automated script/bot</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="footer">
+  FraudShield — Built with <span>Random Forest ML</span> | 20 Detection Features incl. Device, IP & Location Signals
+</footer>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+  // Set default datetime to now
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  document.getElementById('txnDateTime').value = now.toISOString().slice(0, 16);
+
+  // Toast helper
+  function showToast(msg, type='') {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.className = `toast show ${type}`;
+    setTimeout(() => { t.className = 'toast'; }, 3500);
+  }
+
+  // Show/hide states
+  function showState(state) {
+    ['placeholderState','loadingState','resultState'].forEach(id => {
+      document.getElementById(id).style.display = 'none';
+    });
+    document.getElementById(state).style.display = 'block';
+  }
+
+  // Render result
+  function renderResult(data) {
+    const isFraud = data.prediction === 'FRAUD';
+
+    // Verdict badge
+    const badge = document.getElementById('verdictBadge');
+    badge.className = `verdict-badge ${isFraud ? 'fraud' : 'legit'}`;
+    badge.innerHTML = isFraud
+      ? '🚨 &nbsp; FRAUDULENT TRANSACTION'
+      : '✅ &nbsp; LEGITIMATE TRANSACTION';
+
+    // Sub text
+    document.getElementById('verdictSub').textContent =
+      `Risk Level: ${data.risk_level}  |  ${data.total_signals} active fraud signal${data.total_signals !== 1 ? 's' : ''} detected`;
+
+    // Probability bars (animate after small delay)
+    setTimeout(() => {
+      document.getElementById('fraudBar').style.width = data.fraud_prob + '%';
+      document.getElementById('legitBar').style.width = data.legit_prob + '%';
+    }, 100);
+    document.getElementById('fraudPct').textContent = data.fraud_prob + '%';
+    document.getElementById('legitPct').textContent = data.legit_prob + '%';
+
+    // Risk needle
+    setTimeout(() => {
+      document.getElementById('riskNeedle').style.left = data.fraud_prob + '%';
+    }, 100);
+
+    // Fraud signals
+    const signalsList = document.getElementById('signalsList');
+    if (data.signals.length === 0) {
+      signalsList.innerHTML = '<div class="no-signals">✅ No active fraud signals detected</div>';
+    } else {
+      signalsList.innerHTML = data.signals.map(s => `
+        <div class="signal-item">
+          <div class="signal-icon">${s.icon}</div>
+          <div>
+            <div class="signal-title">${s.title}</div>
+            <div class="signal-detail">${s.detail}</div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // Metrics grid
+    const b = data.breakdown;
+    const metricsGrid = document.getElementById('metricsGrid');
+    const metrics = [
+      { name: 'Login Attempts',      value: b.login_attempts,      cls: b.login_attempts >= 3 ? 'danger' : 'safe' },
+      { name: 'Balance Drained',     value: b.amount_to_balance+'%', cls: b.amount_to_balance > 80 ? 'danger' : b.amount_to_balance > 50 ? 'warning' : 'safe' },
+      { name: 'Device Accounts',     value: b.device_accounts,     cls: b.device_accounts > 5 ? 'danger' : b.device_accounts > 3 ? 'warning' : 'safe' },
+      { name: 'IP Accounts',         value: b.ip_accounts,         cls: b.ip_accounts > 7 ? 'danger' : b.ip_accounts > 4 ? 'warning' : 'safe' },
+      { name: 'Txn Hour',            value: b.txn_hour + ':00',    cls: b.is_night_txn ? 'warning' : 'safe' },
+      { name: 'Night Transaction',   value: b.is_night_txn ? 'YES' : 'NO', cls: b.is_night_txn ? 'warning' : 'safe' },
+      { name: 'High Amount',         value: b.is_high_amount ? 'YES' : 'NO', cls: b.is_high_amount ? 'danger' : 'safe' },
+      { name: 'Fast Transaction',    value: b.is_fast_txn ? 'YES' : 'NO', cls: b.is_fast_txn ? 'danger' : 'safe' },
+    ];
+
+    metricsGrid.innerHTML = metrics.map(m => `
+      <div class="metric-item">
+        <div class="metric-name">${m.name}</div>
+        <div class="metric-value ${m.cls}">${m.value}</div>
+      </div>
+    `).join('');
+
+    showState('resultState');
+  }
+
+  // Form submit
+  document.getElementById('fraudForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+
+    const btn = document.getElementById('submitBtn');
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> Analyzing...';
+    showState('loadingState');
+
+    try {
+      const formData = new FormData(this);
+      const response = await fetch('/predict', { method: 'POST', body: formData });
+      const data = await response.json();
+
+      if (data.success) {
+        renderResult(data);
+        showToast(
+          data.prediction === 'FRAUD'
+            ? `🚨 FRAUD detected! ${data.fraud_prob}% probability`
+            : `✅ Transaction appears legitimate (${data.legit_prob}% safe)`,
+          data.prediction === 'FRAUD' ? 'error' : ''
+        );
+      } else {
+        showState('placeholderState');
+        showToast('❌ Error: ' + data.error, 'error');
+      }
+    } catch (err) {
+      showState('placeholderState');
+      showToast('❌ Could not connect to server. Is app.py running?', 'error');
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '<span>🔍</span> Analyze Transaction';
+    }
+  });
+</script>
+</body>
+</html>
