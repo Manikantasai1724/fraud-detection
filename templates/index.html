@@ -600,12 +600,8 @@
               </select>
             </div>
             <div class="form-group">
-              <label>Transaction Duration <span class="hint">(seconds)</span></label>
-              <input type="number" name="transaction_duration" placeholder="e.g. 120" min="1" value="120"/>
-            </div>
-            <div class="form-group">
-              <label>Transaction Date & Time</label>
-              <input type="datetime-local" name="transaction_date" id="txnDateTime"/>
+              <label>Transaction Duration <span class="required">*</span> <span class="hint">(seconds)</span></label>
+              <input type="number" name="transaction_duration" placeholder="e.g. 120" min="1" value="120" required />
             </div>
           </div>
 
@@ -613,12 +609,12 @@
           <div class="section-label">📱 Device & Network Signals</div>
           <div class="form-grid">
             <div class="form-group">
-              <label>Device ID <span class="hint">(key fraud signal)</span></label>
-              <input type="text" name="device_id" placeholder="e.g. D000142" />
+              <label>Device ID <span class="required">*</span> <span class="hint">(key fraud signal)</span></label>
+              <input type="text" name="device_id" placeholder="e.g. D000142" required />
             </div>
             <div class="form-group">
-              <label>IP Address <span class="hint">(key fraud signal)</span></label>
-              <input type="text" name="ip_address" placeholder="e.g. 192.168.1.1" />
+              <label>IP Address <span class="required">*</span> <span class="hint">(key fraud signal)</span></label>
+              <input type="text" name="ip_address" placeholder="e.g. 192.168.1.1" required />
             </div>
             <div class="form-group">
               <label>Login Attempts <span class="required">*</span> <span class="hint">(≥3 = suspicious)</span></label>
@@ -635,27 +631,7 @@
             </div>
           </div>
 
-          <!-- Section 3: Customer Info -->
-          <div class="section-label">👤 Customer Information</div>
-          <div class="form-grid cols-3">
-            <div class="form-group">
-              <label>Customer Age <span class="required">*</span></label>
-              <input type="number" name="customer_age" placeholder="e.g. 35" min="18" max="100" required />
-            </div>
-            <div class="form-group">
-              <label>Occupation <span class="required">*</span></label>
-              <select name="customer_occupation" required>
-                <option value="">Select</option>
-                {% for occ in occupations %}
-                <option value="{{ occ }}">{{ occ }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="form-group">
-              <label>Merchant ID</label>
-              <input type="text" name="merchant_id" placeholder="e.g. M015" />
-            </div>
-          </div>
+
 
           <button type="submit" class="btn-submit" id="submitBtn">
             <span>🔍</span> Analyze Transaction
@@ -704,22 +680,6 @@
           <div class="verdict-box">
             <div id="verdictBadge" class="verdict-badge"></div>
             <div class="verdict-sub" id="verdictSub"></div>
-            <div class="prob-bars">
-              <div class="prob-row">
-                <div class="prob-label">Fraud</div>
-                <div class="prob-bar-bg">
-                  <div class="prob-bar-fill fraud-fill" id="fraudBar" style="width:0%"></div>
-                </div>
-                <div class="prob-pct" id="fraudPct" style="color:var(--accent-red)"></div>
-              </div>
-              <div class="prob-row">
-                <div class="prob-label">Legitimate</div>
-                <div class="prob-bar-bg">
-                  <div class="prob-bar-fill legit-fill" id="legitBar" style="width:0%"></div>
-                </div>
-                <div class="prob-pct" id="legitPct" style="color:var(--accent-green)"></div>
-              </div>
-            </div>
           </div>
 
           <!-- Risk Meter -->
@@ -785,11 +745,6 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  // Set default datetime to now
-  const now = new Date();
-  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
-  document.getElementById('txnDateTime').value = now.toISOString().slice(0, 16);
-
   // Toast helper
   function showToast(msg, type='') {
     const t = document.getElementById('toast');
@@ -820,14 +775,6 @@
     // Sub text
     document.getElementById('verdictSub').textContent =
       `Risk Level: ${data.risk_level}  |  ${data.total_signals} active fraud signal${data.total_signals !== 1 ? 's' : ''} detected`;
-
-    // Probability bars (animate after small delay)
-    setTimeout(() => {
-      document.getElementById('fraudBar').style.width = data.fraud_prob + '%';
-      document.getElementById('legitBar').style.width = data.legit_prob + '%';
-    }, 100);
-    document.getElementById('fraudPct').textContent = data.fraud_prob + '%';
-    document.getElementById('legitPct').textContent = data.legit_prob + '%';
 
     // Risk needle
     setTimeout(() => {
@@ -892,8 +839,8 @@
         renderResult(data);
         showToast(
           data.prediction === 'FRAUD'
-            ? `🚨 FRAUD detected! ${data.fraud_prob}% probability`
-            : `✅ Transaction appears legitimate (${data.legit_prob}% safe)`,
+            ? '🚨 FRAUD detected!'
+            : '✅ Transaction appears legitimate',
           data.prediction === 'FRAUD' ? 'error' : ''
         );
       } else {

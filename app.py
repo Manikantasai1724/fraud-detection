@@ -1,4 +1,4 @@
-# ============================================================
+ # ============================================================
 #  app.py — Flask Backend for Fraud Detection
 #  Run: python app.py
 #  Then open: http://localhost:5000
@@ -53,22 +53,18 @@ def build_features(form_data):
     # Raw inputs
     amount      = float(form_data["transaction_amount"])
     balance     = float(form_data["account_balance"])
-    age         = int(form_data["customer_age"])
+    age         = 35  # Default age (customer info no longer collected)
     duration    = int(form_data["transaction_duration"])
     logins      = int(form_data["login_attempts"])
     txn_type    = form_data["transaction_type"]           # Debit / Credit
     channel     = form_data["channel"]                    # ATM / Online / Branch
     location    = form_data["location"]
-    occupation  = form_data["customer_occupation"]
-    device_id   = form_data.get("device_id",   "UNKNOWN")
-    ip_address  = form_data.get("ip_address",  "0.0.0.0")
-    txn_date    = form_data.get("transaction_date", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    occupation  = "Professional"  # Default occupation (customer info no longer collected)
+    device_id   = form_data["device_id"].strip()
+    ip_address  = form_data["ip_address"].strip()
 
-    # Time features
-    try:
-        dt       = datetime.strptime(txn_date, "%Y-%m-%dT%H:%M")
-    except Exception:
-        dt       = datetime.now()
+    # Time features (use current time since transaction_date no longer collected)
+    dt = datetime.now()
     txn_hour     = dt.hour
     txn_day      = dt.weekday()
 
@@ -126,8 +122,7 @@ def index():
     """Serve the main UI page."""
     return render_template(
         "index.html",
-        locations   = sorted(location_map.keys()),
-        occupations = sorted(occupation_map.keys())
+        locations   = sorted(location_map.keys())
     )
 
 
@@ -139,6 +134,28 @@ def predict():
     """
     try:
         form_data = request.form.to_dict()
+
+        required_fields = [
+            "transaction_amount",
+            "account_balance",
+            "transaction_type",
+            "channel",
+            "transaction_duration",
+            "device_id",
+            "ip_address",
+            "login_attempts",
+            "location",
+        ]
+        missing_fields = [
+            field for field in required_fields
+            if field not in form_data or str(form_data[field]).strip() == ""
+        ]
+        if missing_fields:
+            return jsonify({
+                "success": False,
+                "error": "Missing required inputs",
+                "missing_fields": missing_fields,
+            }), 400
 
         # Build features
         features, breakdown = build_features(form_data)
