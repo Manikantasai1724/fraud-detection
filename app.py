@@ -85,16 +85,31 @@ def build_features(form_data):
     dev_acc_count, dev_txn_count = get_device_signals(device_id)
     ip_acc_count,  ip_txn_count  = get_ip_signals(ip_address)
 
-    # Build feature vector in exact training order
-    feature_vector = [
-        amount,             balance,            age,
-        duration,           logins,             txn_hour,
-        txn_day,            amount_to_balance,  is_night_txn,
-        is_high_amount,     is_fast_txn,        is_low_balance,
-        type_enc,           channel_enc,        location_enc,
-        occ_enc,            dev_acc_count,      ip_acc_count,
-        dev_txn_count,      ip_txn_count
-    ]
+    # Keep a full engineered map, then project by FEATURE_COLS loaded from disk.
+    feature_map = {
+        "TransactionAmount": amount,
+        "AccountBalance": balance,
+        "CustomerAge": age,
+        "TransactionDuration": duration,
+        "LoginAttempts": logins,
+        "txn_hour": txn_hour,
+        "txn_day": txn_day,
+        "amount_to_balance": amount_to_balance,
+        "is_night_txn": is_night_txn,
+        "is_high_amount": is_high_amount,
+        "is_fast_txn": is_fast_txn,
+        "is_low_balance": is_low_balance,
+        "TransactionType_enc": type_enc,
+        "Channel_enc": channel_enc,
+        "Location_enc": location_enc,
+        "Occupation_enc": occ_enc,
+        "device_account_count": dev_acc_count,
+        "ip_account_count": ip_acc_count,
+        "device_txn_count": dev_txn_count,
+        "ip_txn_count": ip_txn_count,
+    }
+
+    feature_vector = [feature_map.get(col, 0) for col in FEATURE_COLS]
 
     # Breakdown for UI display
     breakdown = {
@@ -245,12 +260,13 @@ def health():
 
 
 # ── Run App ───────────────────────────────────────────────
+
 if __name__ == "__main__":
     print("\n" + "=" * 55)
     print("   🛡️  FRAUD DETECTION SERVER STARTING")
     print("=" * 55)
-    print(f"   URL     : http://localhost:5000")
-    print(f"   Model   : Random Forest (100 trees)")
-    print(f"   Features: {len(FEATURE_COLS)} (incl. Device/IP/Location)")
+    print("   Running in deployment mode")
     print("=" * 55 + "\n")
-    app.run(debug=True, host="0.0.0.0", port=5000)
+
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)

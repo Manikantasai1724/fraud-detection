@@ -1,6 +1,6 @@
 # 🛡️ FraudShield — Bank Transaction Fraud Detector
 
-AI-powered fraud detection using **Device ID, IP Address, Location** + 17 other behavioral signals.
+AI-powered fraud detection using transaction, channel, location, and network-behavior signals.
 Built with **Random Forest ML** + **Flask** + a dark-themed UI.
 
 ---
@@ -24,7 +24,8 @@ fraud_app/
 │   ├── device_lookup.pkl
 │   ├── ip_lookup.pkl
 │   ├── high_amt_threshold.pkl
-│   └── low_bal_threshold.pkl
+│   ├── low_bal_threshold.pkl
+│   └── evaluation_metrics.pkl
 │
 └── templates/
     └── index.html                 ← Frontend UI
@@ -83,6 +84,9 @@ http://localhost:5000
 
 ## 🔍 How Fraud is Detected
 
+This project currently uses **proxy (rule-based) labels** for training and evaluation.
+It is useful for prototyping, but these are **not adjudicated bank fraud outcomes**.
+
 | Signal | Threshold | Risk |
 |--------|-----------|------|
 | Login Attempts | ≥ 3 | 🔐 Account Takeover |
@@ -106,23 +110,34 @@ http://localhost:5000
 
 ---
 
-## 📊 Model Performance
+## 📊 Model Evaluation (Leakage-Reduced)
 
-| Metric | Score |
-|--------|-------|
-| Accuracy | 100% |
-| F1 Score | 100% |
-| Recall | 100% |
+- Training now uses a **temporal split** (train -> validation -> holdout test).
+- Device/IP counts, encodings, and thresholds are fit on **train data only**.
+- Training excludes direct proxy-label-defining fields from the final model feature subset to reduce target leakage.
+- Metrics are saved in `model/evaluation_metrics.pkl` after running training.
+
+Use this command to regenerate metrics:
+
+```bash
+python train_model.py
+```
+
+Then read the console output for:
+- Validation: Accuracy, Precision, Recall, F1, PR-AUC, ROC-AUC
+- Holdout Test: Accuracy, Precision, Recall, F1, PR-AUC, ROC-AUC
+
+⚠️ Important: These metrics measure performance against proxy labels, not confirmed fraud investigation labels.
 
 ---
 
 ## 🔑 Key Feature Importances
 
-| Rank | Feature | Importance |
-|------|---------|-----------|
-| 1 | Device Account Count | 31.3% |
-| 2 | Device Transaction Count | 21.5% |
-| 3 | IP Account Count | 11.7% |
-| 4 | IP Transaction Count | 11.6% |
-| 5 | Amount / Balance Ratio | 6.9% |
-| 6 | Login Attempts | 5.3% |
+Feature importance values are printed each time you run training:
+
+```bash
+python train_model.py
+```
+
+This project now intentionally drops leakage-prone proxy-defining features from the model input set,
+so importances will differ from earlier versions.
