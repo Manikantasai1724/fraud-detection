@@ -802,6 +802,8 @@
       { name: 'Night Transaction',   value: b.is_night_txn ? 'YES' : 'NO', cls: b.is_night_txn ? 'warning' : 'safe' },
       { name: 'High Amount',         value: b.is_high_amount ? 'YES' : 'NO', cls: b.is_high_amount ? 'danger' : 'safe' },
       { name: 'Fast Transaction',    value: b.is_fast_txn ? 'YES' : 'NO', cls: b.is_fast_txn ? 'danger' : 'safe' },
+      { name: 'Applied Threshold',   value: (data.applied_threshold ?? data.decision_threshold).toFixed(1) + '%', cls: 'warning' },
+      { name: 'Decision Mode',       value: (data.profile_mode || 'default').toUpperCase(), cls: 'safe' },
       { name: 'Prediction Confidence', value: Math.max(data.fraud_prob, data.legit_prob).toFixed(1) + '%', cls: 'safe' },
     ];
 

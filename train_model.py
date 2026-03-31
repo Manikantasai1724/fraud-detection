@@ -376,6 +376,18 @@ def evaluate_split(name, xdata, ydata, threshold):
 val_metrics, _, _ = evaluate_split("Validation", xval, yval, DECISION_THRESHOLD)
 test_metrics, test_pred, test_prob = evaluate_split("Test", xtest, ytest, DECISION_THRESHOLD)
 
+print("\n" + "-" * 70)
+print("FINAL TRAINING SUMMARY")
+print("-" * 70)
+print(f"Selected Decision Threshold : {DECISION_THRESHOLD:.2f}")
+print(f"Validation Accuracy         : {val_metrics['accuracy']*100:.2f}%")
+print(f"Test Accuracy               : {test_metrics['accuracy']*100:.2f}%")
+print(f"Test Precision              : {test_metrics['precision']*100:.2f}%")
+print(f"Test Recall                 : {test_metrics['recall']*100:.2f}%")
+print(f"Test F1 Score               : {test_metrics['f1']*100:.2f}%")
+print(f"Test PR AUC                 : {test_metrics['pr_auc']*100:.2f}%")
+print(f"Test ROC AUC                : {test_metrics['roc_auc']*100:.2f}%")
+
 print(f"\n{'=' * 70}")
 print("   HOLDOUT TEST CLASSIFICATION REPORT")
 print(f"{'=' * 70}")

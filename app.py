@@ -129,6 +129,7 @@ def build_features(form_data):
     breakdown = {
         "login_attempts"     : logins,
         "amount_to_balance"  : round(amount_to_balance * 100, 1),
+        "amount_to_balance_ratio": float(amount_to_balance),
         "is_night_txn"       : bool(is_night_txn),
         "is_high_amount"     : bool(is_high_amount),
         "is_fast_txn"        : bool(is_fast_txn),
@@ -193,7 +194,33 @@ def predict():
         probas      = model.predict_proba(features)[0]
         fraud_prob  = float(probas[1])
         legit_prob  = float(probas[0])
-        prediction  = int(fraud_prob >= DECISION_THRESHOLD)
+
+        # Situation-aware thresholding: stricter for clearly low-risk profiles,
+        # slightly more sensitive for clearly high-risk profiles.
+        ratio = float(breakdown["amount_to_balance_ratio"])
+        low_risk_profile = (
+            breakdown["login_attempts"] <= 1
+            and ratio < 0.35
+            and not breakdown["is_high_amount"]
+            and not breakdown["is_fast_txn"]
+            and breakdown["device_accounts"] <= 2
+            and breakdown["ip_accounts"] <= 2
+        )
+        high_risk_profile = (
+            breakdown["login_attempts"] >= 4
+            or ratio > 0.85
+            or (breakdown["is_fast_txn"] and ratio > 0.60)
+            or breakdown["device_accounts"] > 5
+            or breakdown["ip_accounts"] > 7
+        )
+
+        applied_threshold = float(DECISION_THRESHOLD)
+        if low_risk_profile:
+            applied_threshold = max(applied_threshold, 0.85)
+        elif high_risk_profile:
+            applied_threshold = min(applied_threshold, 0.55)
+
+        prediction  = int(fraud_prob >= applied_threshold)
 
         # Risk level
         if fraud_prob >= 0.75:
@@ -257,6 +284,8 @@ def predict():
             "fraud_prob"     : round(fraud_prob * 100, 1),
             "legit_prob"     : round(legit_prob * 100, 1),
             "decision_threshold": round(DECISION_THRESHOLD * 100, 1),
+            "applied_threshold": round(applied_threshold * 100, 1),
+            "profile_mode": "low-risk-guard" if low_risk_profile else ("high-risk-boost" if high_risk_profile else "default"),
             "risk_level"     : risk_level,
             "risk_color"     : risk_color,
             "signals"        : signals,
