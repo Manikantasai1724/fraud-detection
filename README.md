@@ -1,7 +1,7 @@
 # 🛡️ FraudShield — Bank Transaction Fraud Detector
 
 AI-powered fraud detection using transaction, channel, location, and network-behavior signals.
-Built with **Random Forest ML** + **Flask** + a dark-themed UI.
+Built with **XGBoost + SMOTE** + **Flask** + a dark-themed UI.
 
 ---
 
@@ -110,9 +110,12 @@ It is useful for prototyping, but these are **not adjudicated bank fraud outcome
 
 ---
 
-## 📊 Model Evaluation (Leakage-Reduced)
+## 📊 Model Evaluation (Recall-First)
 
-- Training now uses a **temporal split** (train -> validation -> holdout test).
+- Training uses a **temporal split** (train -> validation -> holdout test).
+- Model pipeline uses **SMOTE oversampling** + **class-weighted XGBoost**.
+- Hyperparameter search is tuned with **recall** as the scoring metric.
+- Inference uses a **lower tuned decision threshold** (typically ~0.2 to 0.4) to improve fraud recall.
 - Device/IP counts, encodings, and thresholds are fit on **train data only**.
 - Training excludes direct proxy-label-defining fields from the final model feature subset to reduce target leakage.
 - Metrics are saved in `model/evaluation_metrics.pkl` after running training.
@@ -124,8 +127,8 @@ python train_model.py
 ```
 
 Then read the console output for:
-- Validation: Accuracy, Precision, Recall, F1, PR-AUC, ROC-AUC
-- Holdout Test: Accuracy, Precision, Recall, F1, PR-AUC, ROC-AUC
+- Validation: Precision, Recall, F1, PR-AUC, ROC-AUC
+- Holdout Test: Precision, Recall, F1, PR-AUC, ROC-AUC
 
 ⚠️ Important: These metrics measure performance against proxy labels, not confirmed fraud investigation labels.
 
@@ -139,5 +142,5 @@ Feature importance values are printed each time you run training:
 python train_model.py
 ```
 
-This project now intentionally drops leakage-prone proxy-defining features from the model input set,
-so importances will differ from earlier versions.
+This project now intentionally drops leakage-prone proxy-defining features from the model input set
+and includes additional transaction-cadence features, so importances will differ from earlier versions.

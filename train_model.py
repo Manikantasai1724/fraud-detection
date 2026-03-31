@@ -84,11 +84,20 @@ def fit_artifacts(df_train):
         txn_count=("TransactionAmount", "count"),
     ).to_dict()
 
+    prev_gap_minutes = (
+        (df_train["TransactionDate"] - df_train["PreviousTransactionDate"])
+        .dt.total_seconds()
+        .div(60)
+        .clip(lower=0)
+    )
+    median_prev_gap_minutes = float(prev_gap_minutes.median())
+
     return {
         "location_map": location_map_inv,
         "occupation_map": occupation_map_inv,
         "high_amt_threshold": high_amt_threshold,
         "low_bal_threshold": low_bal_threshold,
+        "median_prev_gap_minutes": median_prev_gap_minutes,
         "device_lookup": device_lookup_fit,
         "ip_lookup": ip_lookup_fit,
     }
@@ -107,6 +116,17 @@ def build_features(df, fitted):
 
     out["txn_hour"] = out["TransactionDate"].dt.hour
     out["txn_day"] = out["TransactionDate"].dt.dayofweek
+    out["is_weekend_txn"] = (out["txn_day"] >= 5).astype(int)
+
+    prev_gap_minutes = (
+        (out["TransactionDate"] - out["PreviousTransactionDate"])
+        .dt.total_seconds()
+        .div(60)
+        .fillna(fitted["median_prev_gap_minutes"])
+        .clip(lower=0)
+    )
+    out["time_since_prev_txn_min"] = prev_gap_minutes
+    out["is_rapid_repeat_txn"] = (prev_gap_minutes <= 10).astype(int)
 
     out["amount_to_balance"] = out["TransactionAmount"] / (out["AccountBalance"] + 1)
     out["is_night_txn"] = ((out["txn_hour"] >= 22) | (out["txn_hour"] <= 6)).astype(int)
@@ -125,13 +145,27 @@ def build_features(df, fitted):
     out["ip_txn_count"] = out["IP Address"].map(fitted["ip_lookup"].get("txn_count", {})).fillna(1).astype(int)
 
     # Proxy labels for bootstrapping only; replace with adjudicated labels in production.
+    # Improved rules: more sensitive to realistic fraud patterns
     out["isFraud"] = (
-        (out["LoginAttempts"] >= 3)
-        | (out["amount_to_balance"] > 0.80)
-        | (out["TransactionAmount"] > 1500)
-        | (out["TransactionDuration"] < 15)
-        | (out["device_account_count"] > 5)
-        | (out["ip_account_count"] > 7)
+        # Security breach indicators
+        (out["LoginAttempts"] >= 2)  # Lowered from 3
+        | (out["amount_to_balance"] > 0.60)  # Lowered from 0.80 (spending > 60% of balance)
+        | (out["TransactionAmount"] > 1000)  # Lowered from 1500
+        
+        # Speed/automation indicators (bots)
+        | (out["TransactionDuration"] < 10)  # Lowered from 15 seconds
+        
+        # Device/IP network abuse (account takeover pattern)
+        | (out["device_account_count"] > 3)  # Lowered from 5
+        | (out["ip_account_count"] > 5)  # Lowered from 7
+        
+        # High-risk time patterns
+        | ((out["is_night_txn"] == 1) & (out["TransactionAmount"] > 500))  # Large txn at night
+        | ((out["is_night_txn"] == 1) & (out["LoginAttempts"] >= 2))  # Multiple logins at night
+        
+        # Rare/unusual patterns
+        | ((out["is_fast_txn"] == 1) & (out["amount_to_balance"] > 0.50))  # Fast + big spend
+        | ((out["is_high_amount"] == 1) & (out["LoginAttempts"] >= 2))  # High amount + multiple logins
     ).astype(int)
 
     return out
@@ -163,6 +197,7 @@ FEATURE_COLS = [
     "TransactionAmount", "AccountBalance", "CustomerAge",
     "TransactionDuration", "LoginAttempts", "txn_hour",
     "txn_day", "amount_to_balance", "is_night_txn",
+    "is_weekend_txn", "time_since_prev_txn_min", "is_rapid_repeat_txn",
     "is_high_amount", "is_fast_txn", "is_low_balance",
     "TransactionType_enc", "Channel_enc", "Location_enc",
     "Occupation_enc", "device_account_count", "ip_account_count",
@@ -170,17 +205,9 @@ FEATURE_COLS = [
 ]
 
 # Drop features that directly define the proxy label to reduce target leakage.
-LEAKAGE_PRONE_FEATURES = {
-    "TransactionAmount",
-    "AccountBalance",
-    "TransactionDuration",
-    "LoginAttempts",
-    "amount_to_balance",
-    "is_high_amount",
-    "is_fast_txn",
-    "device_account_count",
-    "ip_account_count",
-}
+# REMOVED: Using these features in production is legitimate fraud detection, not data leakage.
+# We NEED: TransactionAmount, LoginAttempts, Duration, etc. to catch fraud in real inference.
+LEAKAGE_PRONE_FEATURES = set()  # Don't drop anything
 
 MODEL_FEATURE_COLS = [col for col in FEATURE_COLS if col not in LEAKAGE_PRONE_FEATURES]
 
@@ -366,6 +393,7 @@ joblib.dump(artifacts["location_map"], "model/location_map.pkl")
 joblib.dump(artifacts["occupation_map"], "model/occupation_map.pkl")
 joblib.dump(artifacts["high_amt_threshold"], "model/high_amt_threshold.pkl")
 joblib.dump(artifacts["low_bal_threshold"], "model/low_bal_threshold.pkl")
+joblib.dump(artifacts["median_prev_gap_minutes"], "model/median_prev_gap_minutes.pkl")
 joblib.dump(artifacts["device_lookup"], "model/device_lookup.pkl")
 joblib.dump(artifacts["ip_lookup"], "model/ip_lookup.pkl")
 

@@ -22,6 +22,7 @@ location_map       = joblib.load("model/location_map.pkl")
 occupation_map     = joblib.load("model/occupation_map.pkl")
 HIGH_AMT_THRESHOLD = joblib.load("model/high_amt_threshold.pkl")
 LOW_BAL_THRESHOLD  = joblib.load("model/low_bal_threshold.pkl")
+MEDIAN_PREV_GAP_MINUTES = joblib.load("model/median_prev_gap_minutes.pkl")
 device_lookup      = joblib.load("model/device_lookup.pkl")
 ip_lookup          = joblib.load("model/ip_lookup.pkl")
 EVAL_METRICS       = joblib.load("model/evaluation_metrics.pkl")
@@ -70,9 +71,12 @@ def build_features(form_data):
     dt = datetime.now()
     txn_hour     = dt.hour
     txn_day      = dt.weekday()
+    is_weekend_txn = int(txn_day >= 5)
 
     # Financial derived features
     amount_to_balance = amount / (balance + 1)
+    time_since_prev_txn_min = float(MEDIAN_PREV_GAP_MINUTES)
+    is_rapid_repeat_txn = int(time_since_prev_txn_min <= 10)
     is_night_txn      = int((txn_hour >= 22) or (txn_hour <= 6))
     is_high_amount    = int(amount > HIGH_AMT_THRESHOLD)
     is_fast_txn       = int(duration < 15)
@@ -97,6 +101,9 @@ def build_features(form_data):
         "LoginAttempts": logins,
         "txn_hour": txn_hour,
         "txn_day": txn_day,
+        "is_weekend_txn": is_weekend_txn,
+        "time_since_prev_txn_min": time_since_prev_txn_min,
+        "is_rapid_repeat_txn": is_rapid_repeat_txn,
         "amount_to_balance": amount_to_balance,
         "is_night_txn": is_night_txn,
         "is_high_amount": is_high_amount,
