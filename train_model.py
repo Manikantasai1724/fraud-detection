@@ -7,22 +7,29 @@
 import os
 import joblib
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+import numpy as np
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline
 from sklearn.metrics import (
-    accuracy_score,
     average_precision_score,
     classification_report,
+    confusion_matrix,
     f1_score,
     precision_score,
     recall_score,
     roc_auc_score,
 )
+from sklearn.model_selection import RandomizedSearchCV, StratifiedKFold
+from xgboost import XGBClassifier
 
 print("=" * 70)
-print("   BANK FRAUD DETECTION - MODEL TRAINING (LEAKAGE-REDUCED)")
+print("   BANK FRAUD DETECTION - MODEL TRAINING (RECALL-OPTIMIZED)")
 print("=" * 70)
 
 RANDOM_STATE = 42
+MIN_THRESHOLD = 0.20
+MAX_THRESHOLD = 0.40
+THRESHOLD_STEP = 0.02
 
 
 # ── STEP 1: Load Dataset ───────────────────────────────────
@@ -150,7 +157,7 @@ print_label_stats("Test", test_feat)
 
 
 # ── STEP 5: Train Model ───────────────────────────────────
-print("\n[6/8] Training Random Forest model...")
+print("\n[6/9] Training recall-optimized XGBoost model with SMOTE...")
 
 FEATURE_COLS = [
     "TransactionAmount", "AccountBalance", "CustomerAge",
@@ -188,22 +195,103 @@ yval = val_feat["isFraud"].values
 xtest = test_feat[MODEL_FEATURE_COLS].values
 ytest = test_feat["isFraud"].values
 
-model = RandomForestClassifier(
-    n_estimators=200,
-    class_weight="balanced",
-    random_state=RANDOM_STATE,
-    n_jobs=-1,
+train_pos = int(ytrain.sum())
+train_neg = int(len(ytrain) - train_pos)
+scale_pos_weight = max(1.0, train_neg / max(1, train_pos))
+print(f"      ✅ Training class balance     : legit={train_neg:,}, fraud={train_pos:,}")
+print(f"      ✅ XGBoost scale_pos_weight  : {scale_pos_weight:.2f}")
+
+pipeline = Pipeline(
+    steps=[
+        ("smote", SMOTE(random_state=RANDOM_STATE)),
+        (
+            "model",
+            XGBClassifier(
+                objective="binary:logistic",
+                eval_metric="logloss",
+                tree_method="hist",
+                random_state=RANDOM_STATE,
+                n_jobs=-1,
+                scale_pos_weight=scale_pos_weight,
+            ),
+        ),
+    ]
 )
-model.fit(xtrain, ytrain)
-print("      ✅ Model fit complete")
+
+param_distributions = {
+    "smote__sampling_strategy": [0.50, 0.75, 1.00],
+    "model__n_estimators": [250, 400, 600],
+    "model__max_depth": [3, 4, 5, 6],
+    "model__learning_rate": [0.03, 0.05, 0.08, 0.10],
+    "model__subsample": [0.70, 0.85, 1.00],
+    "model__colsample_bytree": [0.70, 0.85, 1.00],
+    "model__min_child_weight": [1, 3, 5, 7],
+    "model__reg_alpha": [0.0, 0.5, 1.0],
+    "model__reg_lambda": [1.0, 2.0, 5.0],
+}
+
+cv = StratifiedKFold(n_splits=3, shuffle=True, random_state=RANDOM_STATE)
+
+search = RandomizedSearchCV(
+    estimator=pipeline,
+    param_distributions=param_distributions,
+    n_iter=20,
+    scoring="recall",
+    n_jobs=-1,
+    cv=cv,
+    random_state=RANDOM_STATE,
+    verbose=1,
+)
+
+search.fit(xtrain, ytrain)
+model = search.best_estimator_
+
+print("      ✅ Hyperparameter tuning complete (scoring=recall)")
+print(f"      ✅ Best CV recall             : {search.best_score_:.4f}")
+print(f"      ✅ Best params                : {search.best_params_}")
 
 
-def evaluate_split(name, xdata, ydata):
-    ypred = model.predict(xdata)
+def pick_threshold(y_true, y_prob, min_threshold=MIN_THRESHOLD, max_threshold=MAX_THRESHOLD, step=THRESHOLD_STEP):
+    """Choose threshold that maximizes recall, then F1, then precision."""
+    best = {
+        "threshold": 0.35,
+        "recall": -1.0,
+        "f1": -1.0,
+        "precision": -1.0,
+    }
+
+    for threshold in np.arange(min_threshold, max_threshold + 1e-9, step):
+        y_pred = (y_prob >= threshold).astype(int)
+        rec = recall_score(y_true, y_pred, zero_division=0)
+        f1 = f1_score(y_true, y_pred, zero_division=0)
+        prec = precision_score(y_true, y_pred, zero_division=0)
+
+        if (
+            rec > best["recall"]
+            or (rec == best["recall"] and f1 > best["f1"])
+            or (rec == best["recall"] and f1 == best["f1"] and prec > best["precision"])
+        ):
+            best = {
+                "threshold": float(threshold),
+                "recall": float(rec),
+                "f1": float(f1),
+                "precision": float(prec),
+            }
+
+    return best
+
+
+val_prob_for_threshold = model.predict_proba(xval)[:, 1]
+threshold_choice = pick_threshold(yval, val_prob_for_threshold)
+DECISION_THRESHOLD = threshold_choice["threshold"]
+print(f"      ✅ Selected threshold         : {DECISION_THRESHOLD:.2f} (from validation)")
+
+
+def evaluate_split(name, xdata, ydata, threshold):
     yprob = model.predict_proba(xdata)[:, 1]
+    ypred = (yprob >= threshold).astype(int)
 
     metrics = {
-        "accuracy": accuracy_score(ydata, ypred),
         "precision": precision_score(ydata, ypred, zero_division=0),
         "recall": recall_score(ydata, ypred, zero_division=0),
         "f1": f1_score(ydata, ypred, zero_division=0),
@@ -212,18 +300,22 @@ def evaluate_split(name, xdata, ydata):
     }
 
     print(f"\n{name} Metrics")
-    print(f"   Accuracy  : {metrics['accuracy']*100:.2f}%")
+    print(f"   Threshold : {threshold:.2f}")
     print(f"   Precision : {metrics['precision']*100:.2f}%")
     print(f"   Recall    : {metrics['recall']*100:.2f}%")
     print(f"   F1 Score  : {metrics['f1']*100:.2f}%")
     print(f"   PR AUC    : {metrics['pr_auc']*100:.2f}%")
     print(f"   ROC AUC   : {metrics['roc_auc']*100:.2f}%")
 
-    return metrics, ypred
+    cm = confusion_matrix(ydata, ypred, labels=[0, 1])
+    tn, fp, fn, tp = cm.ravel()
+    print(f"   Confusion : TN={tn} FP={fp} FN={fn} TP={tp}")
+
+    return metrics, ypred, yprob
 
 
-val_metrics, _ = evaluate_split("Validation", xval, yval)
-test_metrics, test_pred = evaluate_split("Test", xtest, ytest)
+val_metrics, _, _ = evaluate_split("Validation", xval, yval, DECISION_THRESHOLD)
+test_metrics, test_pred, test_prob = evaluate_split("Test", xtest, ytest, DECISION_THRESHOLD)
 
 print(f"\n{'=' * 70}")
 print("   HOLDOUT TEST CLASSIFICATION REPORT")
@@ -231,20 +323,45 @@ print(f"{'=' * 70}")
 print(classification_report(ytest, test_pred, target_names=["No Fraud", "Fraud"]))
 
 
-# ── STEP 6: Feature Importance ────────────────────────────
-print("\n[7/8] Feature Importances (Top 10):")
-feat_imp = sorted(zip(MODEL_FEATURE_COLS, model.feature_importances_), key=lambda x: -x[1])
+# ── STEP 6: Analyze False Negatives ─────────────────────
+print("\n[7/9] False-negative analysis (missed fraud cases)...")
+false_negative_idx = np.where((ytest == 1) & (test_pred == 0))[0]
+print(f"      ✅ False negatives on test: {len(false_negative_idx)}")
+
+if len(false_negative_idx) > 0:
+    fn_records = test_feat.iloc[false_negative_idx].copy()
+    fn_records["fraud_probability"] = np.round(test_prob[false_negative_idx], 4)
+    fn_view_cols = [
+        "TransactionAmount",
+        "AccountBalance",
+        "LoginAttempts",
+        "TransactionDuration",
+        "txn_hour",
+        "device_account_count",
+        "ip_account_count",
+        "fraud_probability",
+    ]
+    print("\n      Sample missed fraud patterns (top 10):")
+    print(fn_records[fn_view_cols].head(10).to_string(index=False))
+else:
+    print("      ✅ No missed fraud cases at current threshold on holdout test.")
+
+
+# ── STEP 7: Feature Importance ────────────────────────────
+print("\n[8/9] Feature Importances (Top 10):")
+feat_imp = sorted(zip(MODEL_FEATURE_COLS, model.named_steps["model"].feature_importances_), key=lambda x: -x[1])
 for feature_name, importance in feat_imp[:10]:
     bar = "#" * int(importance * 80)
     print(f"   {feature_name:28s} {bar} {importance*100:.1f}%")
 
 
-# ── STEP 7: Save Artifacts ────────────────────────────────
-print("\n[8/8] Saving model artifacts...")
+# ── STEP 8: Save Artifacts ────────────────────────────────
+print("\n[9/9] Saving model artifacts...")
 os.makedirs("model", exist_ok=True)
 
 joblib.dump(model, "model/fraud_model.pkl")
 joblib.dump(MODEL_FEATURE_COLS, "model/feature_cols.pkl")
+joblib.dump(DECISION_THRESHOLD, "model/decision_threshold.pkl")
 joblib.dump(artifacts["location_map"], "model/location_map.pkl")
 joblib.dump(artifacts["occupation_map"], "model/occupation_map.pkl")
 joblib.dump(artifacts["high_amt_threshold"], "model/high_amt_threshold.pkl")
@@ -253,6 +370,10 @@ joblib.dump(artifacts["device_lookup"], "model/device_lookup.pkl")
 joblib.dump(artifacts["ip_lookup"], "model/ip_lookup.pkl")
 
 metrics_summary = {
+    "model": "XGBoost + SMOTE",
+    "best_cv_recall": float(search.best_score_),
+    "best_params": search.best_params_,
+    "decision_threshold": DECISION_THRESHOLD,
     "validation": val_metrics,
     "test": test_metrics,
     "notes": "Metrics are measured against proxy rule-based labels, not adjudicated fraud outcomes.",

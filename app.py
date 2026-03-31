@@ -17,14 +17,17 @@ print("Loading fraud detection model...")
 
 model              = joblib.load("model/fraud_model.pkl")
 FEATURE_COLS       = joblib.load("model/feature_cols.pkl")
+DECISION_THRESHOLD = joblib.load("model/decision_threshold.pkl")
 location_map       = joblib.load("model/location_map.pkl")
 occupation_map     = joblib.load("model/occupation_map.pkl")
 HIGH_AMT_THRESHOLD = joblib.load("model/high_amt_threshold.pkl")
 LOW_BAL_THRESHOLD  = joblib.load("model/low_bal_threshold.pkl")
 device_lookup      = joblib.load("model/device_lookup.pkl")
 ip_lookup          = joblib.load("model/ip_lookup.pkl")
+EVAL_METRICS       = joblib.load("model/evaluation_metrics.pkl")
 
 print(f"✅ Model loaded | Features: {len(FEATURE_COLS)}")
+print(f"✅ Decision threshold: {DECISION_THRESHOLD:.2f}")
 print(f"✅ Locations   : {len(location_map)} cities")
 print(f"✅ Occupations : {len(occupation_map)} types")
 
@@ -176,10 +179,10 @@ def predict():
         features, breakdown = build_features(form_data)
 
         # Run prediction
-        prediction  = model.predict(features)[0]
         probas      = model.predict_proba(features)[0]
         fraud_prob  = float(probas[1])
         legit_prob  = float(probas[0])
+        prediction  = int(fraud_prob >= DECISION_THRESHOLD)
 
         # Risk level
         if fraud_prob >= 0.75:
@@ -242,6 +245,7 @@ def predict():
             "prediction"     : "FRAUD"      if prediction == 1 else "LEGITIMATE",
             "fraud_prob"     : round(fraud_prob * 100, 1),
             "legit_prob"     : round(legit_prob * 100, 1),
+            "decision_threshold": round(DECISION_THRESHOLD * 100, 1),
             "risk_level"     : risk_level,
             "risk_color"     : risk_color,
             "signals"        : signals,
@@ -256,7 +260,13 @@ def predict():
 @app.route("/health")
 def health():
     """Health check endpoint."""
-    return jsonify({"status": "ok", "model": "RandomForest", "features": len(FEATURE_COLS)})
+    return jsonify({
+        "status": "ok",
+        "model": EVAL_METRICS.get("model", "XGBoost + SMOTE"),
+        "features": len(FEATURE_COLS),
+        "decision_threshold": DECISION_THRESHOLD,
+        "test_metrics": EVAL_METRICS.get("test", {}),
+    })
 
 
 # ── Run App ───────────────────────────────────────────────
