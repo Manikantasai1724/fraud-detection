@@ -29,6 +29,10 @@ EVAL_METRICS       = joblib.load("model/evaluation_metrics.pkl")
 
 print(f"✅ Model loaded | Features: {len(FEATURE_COLS)}")
 print(f"✅ Decision threshold: {DECISION_THRESHOLD:.2f}")
+if isinstance(EVAL_METRICS, dict):
+    test_accuracy = EVAL_METRICS.get("test", {}).get("accuracy")
+    if test_accuracy is not None:
+        print(f"✅ Saved test accuracy: {test_accuracy*100:.2f}%")
 print(f"✅ Locations   : {len(location_map)} cities")
 print(f"✅ Occupations : {len(occupation_map)} types")
 
@@ -204,13 +208,13 @@ def predict():
 
         # Active fraud signals
         signals = []
-        if breakdown["login_attempts"] >= 3:
+        if breakdown["login_attempts"] >= 4:
             signals.append({
                 "icon"  : "🔐",
                 "title" : "Multiple Login Attempts",
                 "detail": f"{breakdown['login_attempts']} login attempts detected — possible account takeover"
             })
-        if breakdown["amount_to_balance"] > 80:
+        if breakdown["amount_to_balance"] > 85:
             signals.append({
                 "icon"  : "💸",
                 "title" : "Balance Drain Detected",
@@ -222,11 +226,11 @@ def predict():
                 "title" : "Unusually High Amount",
                 "detail": f"Transaction amount exceeds 90th percentile threshold (>${HIGH_AMT_THRESHOLD:.0f})"
             })
-        if breakdown["is_fast_txn"]:
+        if breakdown["is_fast_txn"] and breakdown["amount_to_balance"] > 60:
             signals.append({
                 "icon"  : "⚡",
                 "title" : "Suspiciously Fast Transaction",
-                "detail": "Transaction completed in under 15 seconds — possible automated bot"
+                "detail": "Fast transaction with high balance usage — possible automated bot"
             })
         if breakdown["is_night_txn"]:
             signals.append({
@@ -267,12 +271,14 @@ def predict():
 @app.route("/health")
 def health():
     """Health check endpoint."""
+    test_metrics = EVAL_METRICS.get("test", {}) if isinstance(EVAL_METRICS, dict) else {}
     return jsonify({
         "status": "ok",
         "model": EVAL_METRICS.get("model", "XGBoost + SMOTE"),
         "features": len(FEATURE_COLS),
         "decision_threshold": DECISION_THRESHOLD,
-        "test_metrics": EVAL_METRICS.get("test", {}),
+        "test_metrics": test_metrics,
+        "test_accuracy": test_metrics.get("accuracy"),
     })
 
 

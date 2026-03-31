@@ -536,7 +536,7 @@
     <div class="stat-card">
       <div class="stat-icon">🎯</div>
       <div>
-        <div class="stat-label">Model Accuracy</div>
+        <div class="stat-label">Test Accuracy</div>
         <div class="stat-value" id="modelAccuracy">--</div>
       </div>
     </div>
@@ -794,14 +794,15 @@
     const b = data.breakdown;
     const metricsGrid = document.getElementById('metricsGrid');
     const metrics = [
-      { name: 'Login Attempts',      value: b.login_attempts,      cls: b.login_attempts >= 3 ? 'danger' : 'safe' },
-      { name: 'Balance Drained',     value: b.amount_to_balance+'%', cls: b.amount_to_balance > 80 ? 'danger' : b.amount_to_balance > 50 ? 'warning' : 'safe' },
+      { name: 'Login Attempts',      value: b.login_attempts,      cls: b.login_attempts >= 4 ? 'danger' : b.login_attempts >= 2 ? 'warning' : 'safe' },
+      { name: 'Balance Drained',     value: b.amount_to_balance+'%', cls: b.amount_to_balance > 85 ? 'danger' : b.amount_to_balance > 60 ? 'warning' : 'safe' },
       { name: 'Device Accounts',     value: b.device_accounts,     cls: b.device_accounts > 5 ? 'danger' : b.device_accounts > 3 ? 'warning' : 'safe' },
       { name: 'IP Accounts',         value: b.ip_accounts,         cls: b.ip_accounts > 7 ? 'danger' : b.ip_accounts > 4 ? 'warning' : 'safe' },
       { name: 'Txn Hour',            value: b.txn_hour + ':00',    cls: b.is_night_txn ? 'warning' : 'safe' },
       { name: 'Night Transaction',   value: b.is_night_txn ? 'YES' : 'NO', cls: b.is_night_txn ? 'warning' : 'safe' },
       { name: 'High Amount',         value: b.is_high_amount ? 'YES' : 'NO', cls: b.is_high_amount ? 'danger' : 'safe' },
       { name: 'Fast Transaction',    value: b.is_fast_txn ? 'YES' : 'NO', cls: b.is_fast_txn ? 'danger' : 'safe' },
+      { name: 'Prediction Confidence', value: Math.max(data.fraud_prob, data.legit_prob).toFixed(1) + '%', cls: 'safe' },
     ];
 
     metricsGrid.innerHTML = metrics.map(m => `
@@ -811,11 +812,20 @@
       </div>
     `).join('');
 
-    // Update real-time accuracy based on model confidence
-    const modelConfidence = Math.max(data.fraud_prob, data.legit_prob);
-    document.getElementById('modelAccuracy').textContent = modelConfidence.toFixed(2) + '%';
-
     showState('resultState');
+  }
+
+  // Load saved model test accuracy on page open
+  async function loadModelStats() {
+    try {
+      const response = await fetch('/health');
+      const data = await response.json();
+      if (data.status === 'ok' && typeof data.test_accuracy === 'number') {
+        document.getElementById('modelAccuracy').textContent = (data.test_accuracy * 100).toFixed(2) + '%';
+      }
+    } catch (_) {
+      // Keep placeholder if backend isn't reachable yet.
+    }
   }
 
   // Form submit
@@ -852,6 +862,8 @@
       btn.innerHTML = '<span>🔍</span> Analyze Transaction';
     }
   });
+
+  loadModelStats();
 </script>
 </body>
 </html>

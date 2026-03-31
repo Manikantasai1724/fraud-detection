@@ -11,6 +11,7 @@ import numpy as np
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline
 from sklearn.metrics import (
+    accuracy_score,
     average_precision_score,
     classification_report,
     confusion_matrix,
@@ -28,8 +29,9 @@ print("=" * 70)
 
 RANDOM_STATE = 42
 MIN_THRESHOLD = 0.20
-MAX_THRESHOLD = 0.40
+MAX_THRESHOLD = 0.70
 THRESHOLD_STEP = 0.02
+MIN_RECALL_FOR_THRESHOLD = 0.80
 
 
 # ── STEP 1: Load Dataset ───────────────────────────────────
@@ -145,28 +147,19 @@ def build_features(df, fitted):
     out["ip_txn_count"] = out["IP Address"].map(fitted["ip_lookup"].get("txn_count", {})).fillna(1).astype(int)
 
     # Proxy labels for bootstrapping only; replace with adjudicated labels in production.
-    # Improved rules: more sensitive to realistic fraud patterns
-    out["isFraud"] = (
-        # Security breach indicators
-        (out["LoginAttempts"] >= 2)  # Lowered from 3
-        | (out["amount_to_balance"] > 0.60)  # Lowered from 0.80 (spending > 60% of balance)
-        | (out["TransactionAmount"] > 1000)  # Lowered from 1500
-        
-        # Speed/automation indicators (bots)
-        | (out["TransactionDuration"] < 10)  # Lowered from 15 seconds
-        
-        # Device/IP network abuse (account takeover pattern)
-        | (out["device_account_count"] > 3)  # Lowered from 5
-        | (out["ip_account_count"] > 5)  # Lowered from 7
-        
-        # High-risk time patterns
-        | ((out["is_night_txn"] == 1) & (out["TransactionAmount"] > 500))  # Large txn at night
-        | ((out["is_night_txn"] == 1) & (out["LoginAttempts"] >= 2))  # Multiple logins at night
-        
-        # Rare/unusual patterns
-        | ((out["is_fast_txn"] == 1) & (out["amount_to_balance"] > 0.50))  # Fast + big spend
-        | ((out["is_high_amount"] == 1) & (out["LoginAttempts"] >= 2))  # High amount + multiple logins
-    ).astype(int)
+    # Use a risk-score style proxy so fraud remains a minority class and avoids over-flagging.
+    risk_score = (
+        (out["LoginAttempts"] >= 4).astype(int) * 2
+        + (out["amount_to_balance"] > 0.85).astype(int) * 2
+        + (out["TransactionAmount"] > (fitted["high_amt_threshold"] * 1.25)).astype(int) * 2
+        + (out["TransactionDuration"] < 12).astype(int)
+        + (out["device_account_count"] > 5).astype(int)
+        + (out["ip_account_count"] > 7).astype(int)
+        + ((out["is_night_txn"] == 1) & (out["TransactionAmount"] > fitted["high_amt_threshold"])).astype(int)
+        + ((out["is_fast_txn"] == 1) & (out["amount_to_balance"] > 0.60)).astype(int)
+    )
+
+    out["isFraud"] = (risk_score >= 3).astype(int)
 
     return out
 
@@ -228,6 +221,13 @@ scale_pos_weight = max(1.0, train_neg / max(1, train_pos))
 print(f"      ✅ Training class balance     : legit={train_neg:,}, fraud={train_pos:,}")
 print(f"      ✅ XGBoost scale_pos_weight  : {scale_pos_weight:.2f}")
 
+minority_ratio = min(train_pos, train_neg) / max(train_pos, train_neg)
+candidate_smote = [0.50, 0.75, 1.00]
+smote_strategies = [r for r in candidate_smote if r > minority_ratio]
+if not smote_strategies:
+    smote_strategies = [1.00]
+print(f"      ✅ Valid SMOTE ratios         : {smote_strategies}")
+
 pipeline = Pipeline(
     steps=[
         ("smote", SMOTE(random_state=RANDOM_STATE)),
@@ -246,7 +246,7 @@ pipeline = Pipeline(
 )
 
 param_distributions = {
-    "smote__sampling_strategy": [0.50, 0.75, 1.00],
+    "smote__sampling_strategy": smote_strategies,
     "model__n_estimators": [250, 400, 600],
     "model__max_depth": [3, 4, 5, 6],
     "model__learning_rate": [0.03, 0.05, 0.08, 0.10],
@@ -279,12 +279,13 @@ print(f"      ✅ Best params                : {search.best_params_}")
 
 
 def pick_threshold(y_true, y_prob, min_threshold=MIN_THRESHOLD, max_threshold=MAX_THRESHOLD, step=THRESHOLD_STEP):
-    """Choose threshold that maximizes recall, then F1, then precision."""
+    """Choose threshold maximizing F1 with a minimum recall floor to reduce false positives."""
     best = {
-        "threshold": 0.35,
+        "threshold": 0.40,
         "recall": -1.0,
         "f1": -1.0,
         "precision": -1.0,
+        "accuracy": -1.0,
     }
 
     for threshold in np.arange(min_threshold, max_threshold + 1e-9, step):
@@ -292,18 +293,47 @@ def pick_threshold(y_true, y_prob, min_threshold=MIN_THRESHOLD, max_threshold=MA
         rec = recall_score(y_true, y_pred, zero_division=0)
         f1 = f1_score(y_true, y_pred, zero_division=0)
         prec = precision_score(y_true, y_pred, zero_division=0)
+        acc = accuracy_score(y_true, y_pred)
+
+        if rec < MIN_RECALL_FOR_THRESHOLD:
+            continue
 
         if (
-            rec > best["recall"]
-            or (rec == best["recall"] and f1 > best["f1"])
-            or (rec == best["recall"] and f1 == best["f1"] and prec > best["precision"])
+            f1 > best["f1"]
+            or (f1 == best["f1"] and rec > best["recall"])
+            or (f1 == best["f1"] and rec == best["recall"] and prec > best["precision"])
+            or (f1 == best["f1"] and rec == best["recall"] and prec == best["precision"] and acc > best["accuracy"])
         ):
             best = {
                 "threshold": float(threshold),
                 "recall": float(rec),
                 "f1": float(f1),
                 "precision": float(prec),
+                "accuracy": float(acc),
             }
+
+    # Fallback: if no threshold meets recall floor, maximize recall then F1.
+    if best["recall"] < 0:
+        for threshold in np.arange(min_threshold, max_threshold + 1e-9, step):
+            y_pred = (y_prob >= threshold).astype(int)
+            rec = recall_score(y_true, y_pred, zero_division=0)
+            f1 = f1_score(y_true, y_pred, zero_division=0)
+            prec = precision_score(y_true, y_pred, zero_division=0)
+            acc = accuracy_score(y_true, y_pred)
+
+            if (
+                rec > best["recall"]
+                or (rec == best["recall"] and f1 > best["f1"])
+                or (rec == best["recall"] and f1 == best["f1"] and prec > best["precision"])
+                or (rec == best["recall"] and f1 == best["f1"] and prec == best["precision"] and acc > best["accuracy"])
+            ):
+                best = {
+                    "threshold": float(threshold),
+                    "recall": float(rec),
+                    "f1": float(f1),
+                    "precision": float(prec),
+                    "accuracy": float(acc),
+                }
 
     return best
 
@@ -319,6 +349,7 @@ def evaluate_split(name, xdata, ydata, threshold):
     ypred = (yprob >= threshold).astype(int)
 
     metrics = {
+        "accuracy": accuracy_score(ydata, ypred),
         "precision": precision_score(ydata, ypred, zero_division=0),
         "recall": recall_score(ydata, ypred, zero_division=0),
         "f1": f1_score(ydata, ypred, zero_division=0),
@@ -328,6 +359,7 @@ def evaluate_split(name, xdata, ydata, threshold):
 
     print(f"\n{name} Metrics")
     print(f"   Threshold : {threshold:.2f}")
+    print(f"   Accuracy  : {metrics['accuracy']*100:.2f}%")
     print(f"   Precision : {metrics['precision']*100:.2f}%")
     print(f"   Recall    : {metrics['recall']*100:.2f}%")
     print(f"   F1 Score  : {metrics['f1']*100:.2f}%")
@@ -414,5 +446,5 @@ for model_file in sorted(os.listdir("model")):
     print(f"   -> {model_file:40s} ({size/1024:.1f} KB)")
 
 print("\n⚠️  NOTE: Metrics are against proxy labels generated from heuristics.")
-print("   Use confirmed fraud labels for production-grade performance claims.")
+print("Use confirmed fraud labels for production-grade performance claims.")
 print("\n🚀 Now run: python app.py")
